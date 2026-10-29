@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>息の検出テスト</title>
+<style>
+:root{--bg:#f6eddc;--card:#fbf7ee;--ink:#3a3326;--sub:#6e6552;--line:#ddd0b3;--green:#4a6442;--warm:#b5603f;--blue:#6fa6c8}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Hiragino Sans','Hiragino Kaku Gothic ProN',system-ui,sans-serif;-webkit-text-size-adjust:100%}
+main{max-width:760px;margin:0 auto;padding:20px 16px calc(env(safe-area-inset-bottom) + 40px);display:flex;flex-direction:column;gap:16px}
+h1{font-size:22px;margin:4px 0 0}
+h2{font-size:16px;margin:0 0 8px}
+p{margin:0;line-height:1.7}
+.note{font-size:13px;color:var(--sub);line-height:1.6}
+.card{background:var(--card);border-radius:16px;padding:16px;box-shadow:0 2px 0 rgba(90,70,40,.06)}
+.btns{display:flex;flex-wrap:wrap;gap:10px}
+button{font:inherit;font-size:16px;min-height:50px;padding:0 20px;border-radius:12px;border:1.5px solid #cdbf9f;background:#fffdf8;color:var(--ink);cursor:pointer}
+button.main{background:var(--green);border-color:var(--green);color:#fff}
+button.stop{background:var(--warm);border-color:var(--warm);color:#fff}
+button:disabled{opacity:.4;cursor:default}
+button[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:#fff}
+button:focus-visible,input:focus-visible{outline:3px solid #e0b24a;outline-offset:2px}
+#status{font-size:15px;min-height:1.6em}
+.meter{position:relative;height:44px;border-radius:12px;background:#efe5cf;overflow:hidden}
+.meter .fill{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,#9fcbb2,#6fa6c8 60%,#4a6442);transition:width .05s linear}
+.meter .lbl{position:absolute;inset:0;display:flex;align-items:center;padding:0 14px;font-size:15px;font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:12px}
+.stat{background:#fffdf8;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.stat span{display:block;font-size:12px;color:var(--sub)}
+.stat b{font-size:22px;font-variant-numeric:tabular-nums}
+#state.breath{color:var(--green)}
+#state.voice{color:var(--warm)}
+.row2{display:grid;grid-template-columns:1fr 200px;gap:14px;align-items:center}
+@media (max-width:560px){.row2{grid-template-columns:1fr}}
+canvas{display:block;width:100%;border-radius:12px;background:#fffdf8;border:1px solid var(--line)}
+#graph{height:160px}
+#wheel{height:200px;max-width:200px;margin:0 auto}
+.set{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.set label{font-size:14px;font-weight:600;color:#5a5040}
+.set .line{display:flex;align-items:center;gap:12px}
+.set input[type=range]{flex:1;accent-color:var(--green)}
+.set output{min-width:4.5em;text-align:right;font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-size:15px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left}
+th{font-size:13px;color:var(--sub);font-weight:600}
+ol{margin:0;padding-left:1.4em;line-height:1.8}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--sub);margin-top:6px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:4px;border-radius:2px;vertical-align:middle;margin-right:4px}
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>息の検出テスト（支援者用）</h1>
+    <p class="note">「物を吹く」アプリの準備です。この端末のマイクで、息の強さと長さがどのくらい拾えるかを確かめます。音は録音も送信もしません。その場の大きさを見るだけです。</p>
+  </div>
+
+  <section class="card">
+    <div class="btns">
+      <button id="startBtn" class="main">マイクをはじめる</button>
+      <button id="calBtn" disabled>周りの音を測る（2秒）</button>
+      <button id="stopBtn" class="stop" disabled>止める</button>
+    </div>
+    <p id="status" class="note" style="margin-top:10px">「マイクをはじめる」を押すと、マイクの許可を聞かれます。</p>
+  </section>
+
+  <section class="card">
+    <h2>息の強さ</h2>
+    <div class="meter"><div class="fill" id="fill"></div><div class="lbl" id="pct">0%</div></div>
+    <div class="stats">
+      <div class="stat"><span>いまの状態</span><b id="state">—</b></div>
+      <div class="stat"><span>いまの息の長さ</span><b id="curLen">0.0 秒</b></div>
+      <div class="stat"><span>この息の最大</span><b id="curPeak">0%</b></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>この8秒の動き</h2>
+    <div class="row2">
+      <div>
+        <canvas id="graph"></canvas>
+        <div class="legend"><span><i style="background:#4a6442"></i>息として数えた強さ</span><span><i style="background:#c9b99a"></i>低い音の大きさ</span><span><i style="background:#e0a58a"></i>声と判定した時間</span></div>
+      </div>
+      <div>
+        <canvas id="wheel" aria-label="風車の見本（息で回る）"></canvas>
+        <p class="note" style="text-align:center">見本：息で回る風車</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>吹いた記録（このページを閉じると消えます）</h2>
+    <table>
+      <thead><tr><th>回</th><th>長さ</th><th>最大の強さ</th><th>声の混じり</th></tr></thead>
+      <tbody id="log"><tr><td colspan="4" class="note">まだありません</td></tr></tbody>
+    </table>
+    <div class="btns" style="margin-top:10px"><button id="clearBtn">記録を消す</button></div>
+  </section>
+
+  <section class="card">
+    <h2>調整</h2>
+    <div class="set">
+      <label for="sens">感度（周りの音より、どれだけ大きければ息とみなすか）</label>
+      <div class="line"><input id="sens" type="range" min="2" max="24" step="1" value="10"><output id="sensOut">10 dB</output></div>
+      <p class="note">反応しすぎるときは右へ、弱い息に反応しないときは左へ。</p>
+    </div>
+    <div class="set">
+      <label for="range">強さの幅（100%になるまでの大きさ）</label>
+      <div class="line"><input id="range" type="range" min="10" max="50" step="2" value="28"><output id="rangeOut">28 dB</output></div>
+      <p class="note">強く吹いても100%に届かないときは左へ。</p>
+    </div>
+    <div class="set">
+      <label>声を息として数えない</label>
+      <div class="btns"><button id="voiceOn" aria-pressed="true">数えない</button><button id="voiceOff" aria-pressed="false">数える</button></div>
+    </div>
+    <div class="set">
+      <label for="peaks">声と判定する山の数</label>
+      <div class="line"><input id="peaks" type="range" min="1" max="8" step="1" value="3"><output id="peaksOut">3</output></div>
+      <p class="note">話しても息と数えてしまうときは左へ。息なのに声と判定されるときは右へ。</p>
+    </div>
+    <div class="stats">
+      <div class="stat"><span>周りの音</span><b id="floorDb">— dB</b></div>
+      <div class="stat"><span>低い音の大きさ</span><b id="lowDb">— dB</b></div>
+      <div class="stat"><span>声らしい山の数（息はほぼ0）</span><b id="peaksNow">—</b></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>試し方</h2>
+    <ol>
+      <li>静かな所で「周りの音を測る」を押す（2秒、話さない）。</li>
+      <li>端末から5〜10cm離れて、マイクに向けて弱く吹く。</li>
+      <li>強く吹く。長く（3秒以上）吹く。</li>
+      <li>ふつうに話す。声で反応しないかを見る。</li>
+      <li>手をたたく、机をたたく。音で反応しすぎないかを見る。</li>
+      <li>距離を変えて（20cm、30cm）同じことをする。</li>
+    </ol>
+    <p class="note" style="margin-top:8px">マイクの位置は機種で違います。iPadは上の縁や角の近く、iPhoneは下の縁にあることが多いです。どこに向けて吹くと反応がよいかも見てください。結果（反応した距離、うまくいかなかったこと）を教えてもらえれば、アプリの作り方に反映します。</p>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+let AC = null, stream = null, src = null, anLow = null, anFull = null, sink = null, running = false;
+let floorDb = -70, calibrating = null;
+const P = { sens: 10, range: 28, voiceGate: true, peaks: 3 };
+
+// 計測の値
+let env = 0, lowDbNow = -100, peaksNow = 0, isVoice = false;
+let blow = null, onT = 0, voiceHold = 0, lastActive = 0;
+const hist = [];             // 8秒分の { t, env, low, voice }
+const blows = [];
+let tdLow = null, fq = null;
+
+function setStatus(t){ $('status').textContent = t; }
+
+async function start(){
+  if (running) return;
+  if (location.protocol === 'file:'){
+    setStatus('このファイルを直接開いているため、マイクは使えません。公開URL（https://…）を、Safariで開いてください。');
+    return;
+  }
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    setStatus('この画面では、マイクが使えません（https以外、またはこのブラウザは未対応）。Safariで、公開URL（https://…）を開いてください。');
+    return;
+  }
+  setStatus('マイクを準備しています…');
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+  }catch(e){
+    const why = {
+      NotAllowedError: 'マイクの許可がありません。設定アプリ→「Safari」→「マイク」で許可し、もう一度押してください。',
+      NotFoundError: 'マイクが見つかりません。',
+      NotReadableError: '他のアプリがマイクを使っています。そのアプリを閉じてから、もう一度押してください。',
+      SecurityError: 'セキュリティの制限で、マイクが使えません。Safariで開き直してください。'
+    }[e.name] || 'マイクを開けませんでした。';
+    setStatus(why + '（' + (e.name || 'エラー') + '）');
+    return;
+  }
+  AC = new (window.AudioContext || window.webkitAudioContext)();
+  if (AC.state === 'suspended') await AC.resume();
+  src = AC.createMediaStreamSource(stream);
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 300; lp.Q.value = 0.7;
+  anLow = AC.createAnalyser(); anLow.fftSize = 2048; anLow.smoothingTimeConstant = 0;
+  anFull = AC.createAnalyser(); anFull.fftSize = 2048; anFull.smoothingTimeConstant = 0.3;
+  // 何も鳴らさない出口（Safariで計算を止めないため）
+  sink = AC.createGain(); sink.gain.value = 0; sink.connect(AC.destination);
+  src.connect(lp); lp.connect(anLow); anLow.connect(sink);
+  src.connect(anFull); anFull.connect(sink);
+  tdLow = new Float32Array(anLow.fftSize);
+  fq = new Float32Array(anFull.frequencyBinCount);
+  running = true;
+  $('startBtn').disabled = true; $('calBtn').disabled = false; $('stopBtn').disabled = false;
+  calibrate();
+}
+
+function stop(){
+  running = false;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null;
+  if (AC){ try{ AC.close(); }catch(_){} AC = null; }
+  endBlow();
+  env = 0; calibrating = null;
+  $('startBtn').disabled = false; $('calBtn').disabled = true; $('stopBtn').disabled = true;
+  $('state').textContent = '—'; $('state').className = '';
+  setStatus('止めました。マイクは使っていません。');
+}
+
+function calibrate(){
+  calibrating = { until: performance.now() + 2000, vals: [] };
+  setStatus('周りの音を測っています。2秒間、話さず、吹かずにお待ちください…');
+}
+
+function measure(){
+  anLow.getFloatTimeDomainData(tdLow);
+  let s = 0;
+  for (let i = 0; i < tdLow.length; i++) s += tdLow[i] * tdLow[i];
+  const rms = Math.sqrt(s / tdLow.length);
+  lowDbNow = 20 * Math.log10(rms + 1e-9);
+
+  // 声らしさ：80〜1500Hzに、まわりより飛び出た「山」（声の倍音）がいくつあるか。息はなめらかで、山がほとんどない
+  anFull.getFloatFrequencyData(fq);
+  const hz = AC.sampleRate / anFull.fftSize;
+  const i0 = Math.max(7, Math.floor(80 / hz)), i1 = Math.min(fq.length - 8, Math.ceil(1500 / hz));
+  const v = i => Math.max(-160, isFinite(fq[i]) ? fq[i] : -160);
+  let pk = 0;
+  for (let i = i0; i <= i1; i++){
+    const c = v(i);
+    if (c < -110 || c < v(i - 1) || c < v(i + 1)) continue;
+    let m = 0;
+    for (let k = -6; k <= 6; k++) if (k) m += v(i + k);
+    if (c - m / 12 > 12) pk++;
+  }
+  peaksNow = pk;
+}
+
+function update(now, dt){
+  if (!running || !AC) return;
+  measure();
+
+  if (calibrating){
+    calibrating.vals.push(lowDbNow);
+    if (now >= calibrating.until){
+      const v = calibrating.vals.slice().sort((a, b) => a - b);
+      floorDb = v.length ? v[Math.floor(v.length * 0.7)] : -70;
+      calibrating = null;
+      setStatus('測り終えました。マイクに向けて吹いてみてください。');
+    }
+  }
+
+  const over = lowDbNow - (floorDb + P.sens);
+  let raw = clamp(over / P.range, 0, 1);
+  isVoice = raw > 0.02 && peaksNow >= P.peaks;
+  if (isVoice) voiceHold = 0.3; else voiceHold = Math.max(0, voiceHold - dt);
+  if (P.voiceGate && voiceHold > 0) raw = 0;
+  if (calibrating) raw = 0;
+  // 出だしの0.08秒は待つ（声の出だしや、物音を息と数えないため）
+  onT = raw > 0 ? onT + dt : 0;
+  if (onT < 0.08) raw = 0;
+
+  // なめらかに：上がるのは早く、下がるのはゆっくり
+  const kUp = 1 - Math.exp(-dt / 0.04), kDn = 1 - Math.exp(-dt / 0.18);
+  env += (raw - env) * (raw > env ? kUp : kDn);
+
+  // 1回の息を数える（長さは、息が実際に続いた時間）
+  if (raw > 0.04){
+    if (!blow) blow = { t0: now - onT * 1000, peak: 0, voiceT: 0 };
+    lastActive = now;
+  } else if (blow && now - lastActive > 200) endBlow();
+  if (blow){ blow.peak = Math.max(blow.peak, env); if (isVoice) blow.voiceT += dt; }
+
+  hist.push({ t: now, env, low: lowDbNow, voice: isVoice && lowDbNow > floorDb + P.sens });
+  while (hist.length && now - hist[0].t > 8000) hist.shift();
+}
+
+function endBlow(){
+  if (!blow) return;
+  const len = Math.max(0, (lastActive - blow.t0) / 1000);
+  if (len >= 0.1 && blow.voiceT / Math.max(0.01, len) < 0.5){
+    blows.unshift({ n: blows.length + 1, len, peak: blow.peak, voice: blow.voiceT / Math.max(0.01, len) });
+    if (blows.length > 20) blows.pop();
+    drawLog();
+  }
+  blow = null;
+}
+
+function drawLog(){
+  const tb = $('log');
+  if (!blows.length){ tb.innerHTML = '<tr><td colspan="4" class="note">まだありません</td></tr>'; return; }
+  tb.innerHTML = blows.map(b =>
+    '<tr><td>' + b.n + '</td><td>' + b.len.toFixed(1) + ' 秒</td><td>' + Math.round(b.peak * 100) + '%</td><td>' +
+    (b.voice > 0.3 ? 'あり' : b.voice > 0.05 ? '少し' : 'なし') + '</td></tr>'
+  ).join('');
+}
+
+// ---- 表示 ----
+const gcv = $('graph'), gctx = gcv.getContext('2d');
+const wcv = $('wheel'), wctx = wcv.getContext('2d');
+let wAng = 0, wVel = 0;
+function fitCanvas(c, x){
+  const r = c.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2);
+  if (c.width !== Math.round(r.width * d) || c.height !== Math.round(r.height * d)){
+    c.width = Math.round(r.width * d); c.height = Math.round(r.height * d);
+  }
+  x.setTransform(d, 0, 0, d, 0, 0);
+  return { w: r.width, h: r.height };
+}
+function drawGraph(now){
+  const { w, h } = fitCanvas(gcv, gctx);
+  gctx.clearRect(0, 0, w, h);
+  gctx.strokeStyle = '#efe5cf'; gctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++){ gctx.beginPath(); gctx.moveTo(0, h * i / 4); gctx.lineTo(w, h * i / 4); gctx.stroke(); }
+  const X = t => w - (now - t) / 8000 * w;
+  // 声と判定した時間
+  gctx.fillStyle = 'rgba(224,165,138,.35)';
+  hist.forEach((p, i) => { if (p.voice && i){ const x0 = X(hist[i - 1].t), x1 = X(p.t); gctx.fillRect(x0, 0, Math.max(1, x1 - x0), h); } });
+  // 低い音の大きさ（-90〜-10 dB）
+  gctx.beginPath();
+  hist.forEach((p, i) => { const y = h - clamp((p.low + 90) / 80, 0, 1) * h; i ? gctx.lineTo(X(p.t), y) : gctx.moveTo(X(p.t), y); });
+  gctx.strokeStyle = '#c9b99a'; gctx.lineWidth = 1.5; gctx.stroke();
+  // 息として数えた強さ
+  gctx.beginPath();
+  hist.forEach((p, i) => { const y = h - p.env * (h - 6) - 3; i ? gctx.lineTo(X(p.t), y) : gctx.moveTo(X(p.t), y); });
+  gctx.strokeStyle = '#4a6442'; gctx.lineWidth = 2.5; gctx.stroke();
+  // 判定の線（周りの音＋感度）
+  const yThr = h - clamp((floorDb + P.sens + 90) / 80, 0, 1) * h;
+  gctx.setLineDash([4, 4]); gctx.strokeStyle = 'rgba(58,51,38,.35)'; gctx.lineWidth = 1;
+  gctx.beginPath(); gctx.moveTo(0, yThr); gctx.lineTo(w, yThr); gctx.stroke(); gctx.setLineDash([]);
+}
+const WCOL = ['#f4b8c4', '#fff0c8', '#b9e3cf', '#b8d8ee'];
+function drawWheel(dt){
+  const { w, h } = fitCanvas(wcv, wctx);
+  wVel += (env * 14 - wVel) * (1 - Math.exp(-dt / (env > 0.05 ? 0.25 : 1.2)));
+  wAng += wVel * dt;
+  wctx.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2 - 6, r = Math.min(w, h) * 0.38;
+  wctx.strokeStyle = '#b9a988'; wctx.lineWidth = 4; wctx.lineCap = 'round';
+  wctx.beginPath(); wctx.moveTo(cx, cy); wctx.lineTo(cx, h - 4); wctx.stroke();
+  wctx.save(); wctx.translate(cx, cy); wctx.rotate(wAng);
+  for (let i = 0; i < 4; i++){
+    wctx.save(); wctx.rotate(i * Math.PI / 2);
+    wctx.beginPath(); wctx.moveTo(0, 0); wctx.lineTo(r, 0); wctx.quadraticCurveTo(r * 0.9, -r * 0.6, 0, -r * 0.08); wctx.closePath();
+    wctx.fillStyle = WCOL[i]; wctx.fill();
+    wctx.restore();
+  }
+  wctx.beginPath(); wctx.arc(0, 0, r * 0.08, 0, Math.PI * 2); wctx.fillStyle = '#fffaf1'; wctx.fill();
+  wctx.restore();
+}
+function drawUi(){
+  $('fill').style.width = Math.round(env * 100) + '%';
+  $('pct').textContent = Math.round(env * 100) + '%';
+  const st = $('state');
+  if (!running){ st.textContent = '—'; st.className = ''; }
+  else if (calibrating){ st.textContent = '測っています'; st.className = ''; }
+  else if (blow){ st.textContent = '息'; st.className = 'breath'; }
+  else if (isVoice && lowDbNow > floorDb + P.sens){ st.textContent = '声っぽい'; st.className = 'voice'; }
+  else { st.textContent = '静か'; st.className = ''; }
+  $('curLen').textContent = (blow ? (performance.now() - blow.t0) / 1000 : 0).toFixed(1) + ' 秒';
+  $('curPeak').textContent = Math.round((blow ? blow.peak : 0) * 100) + '%';
+  $('floorDb').textContent = running ? floorDb.toFixed(0) + ' dB' : '— dB';
+  $('lowDb').textContent = running ? lowDbNow.toFixed(0) + ' dB' : '— dB';
+  $('peaksNow').textContent = running ? String(peaksNow) : '—';
+}
+
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  update(now, dt);
+  drawGraph(now); drawWheel(dt); drawUi();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ---- 操作 ----
+$('startBtn').addEventListener('click', start);
+$('stopBtn').addEventListener('click', stop);
+$('calBtn').addEventListener('click', calibrate);
+$('clearBtn').addEventListener('click', () => { blows.length = 0; drawLog(); });
+const bindRange = (id, key, fmt) => {
+  const el = $(id), out = $(id + 'Out');
+  const f = () => { P[key] = Number(el.value); out.textContent = fmt(P[key]); };
+  el.addEventListener('input', f); f();
+};
+bindRange('sens', 'sens', v => v + ' dB');
+bindRange('range', 'range', v => v + ' dB');
+bindRange('peaks', 'peaks', v => String(v));
+function setVoice(on){
+  P.voiceGate = on;
+  $('voiceOn').setAttribute('aria-pressed', String(on));
+  $('voiceOff').setAttribute('aria-pressed', String(!on));
+}
+$('voiceOn').addEventListener('click', () => setVoice(true));
+$('voiceOff').addEventListener('click', () => setVoice(false));
+// 画面を離れたら、マイクを止める
+document.addEventListener('visibilitychange', () => { if (document.hidden && running) stop(); });
+</script>
+</body>
+</html>
